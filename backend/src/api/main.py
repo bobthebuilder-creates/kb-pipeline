@@ -1,6 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import logging
+
+from src.llm.config import default_llm_config
+from src.llm.client import create_llm_client
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="KB Pipeline Backend",
@@ -17,13 +24,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global LLM config + client (for now; later we may inject via dependencies)
+LLM_CONFIG = default_llm_config()
+try:
+    LLM_CLIENT = create_llm_client(LLM_CONFIG)
+    logger.info(f"Initialized LLM client with config: {LLM_CONFIG}")
+except Exception as e:
+    LLM_CLIENT = None
+    logger.warning(f"Failed to initialize LLM client at startup: {e}")
+
 
 @app.get("/health")
 def health():
     """
     Simple health check endpoint.
     """
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "llm_mode": LLM_CONFIG.mode.value,
+        "llm_base_url": LLM_CONFIG.base_url,
+        "llm_model": LLM_CONFIG.model_name,
+        "llm_client_initialized": LLM_CLIENT is not None,
+    }
 
 
 def get_app():
