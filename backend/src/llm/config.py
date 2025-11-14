@@ -3,6 +3,7 @@ from typing import Optional
 from pydantic import BaseModel
 import os
 import logging
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -100,3 +101,24 @@ def default_llm_config() -> LLMConfig:
         logger.info("Using CUSTOM LLM mode; base_url must be provided by user or env.")
 
     return LLMConfig(mode=mode, base_url=base_url, model_name=model_name)
+
+async def list_ollama_models(base_url: str) -> list[str]:
+    """
+    Query Ollama for installed models.
+
+    This assumes Ollama exposes a /api/tags endpoint that returns:
+      { "models": [ { "name": "llama3" }, ... ] }
+
+    For now we keep it simple; we'll refine once we hook to a real instance.
+    """
+    url = base_url.rstrip("/") + "/api/tags"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        data = resp.json()
+    models = []
+    for item in data.get("models", []):
+        name = item.get("name")
+        if name:
+            models.append(name)
+    return models
