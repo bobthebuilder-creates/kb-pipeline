@@ -4,9 +4,11 @@ pydantic
 httpx
 loguru
 python-dotenv
-# to be added later:
-# neo4j
-# qdrant-client
-# pandas
-# numpy
-# networkx
+neo4j
+qdrant-client
+pandas
+numpy
+networkx
+pdfplumber
+python-docx
+chardet

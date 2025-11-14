@@ -5,7 +5,7 @@ import logging
 
 from src.llm.config import default_llm_config
 from src.llm.client import create_llm_client
-from src.api import llm_routes
+from src.api import llm_routes, pipeline_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +26,6 @@ app.add_middleware(
 )
 
 # Initialize global LLM config/client at startup (for /health).
-# The LLM API route maintains its own mutable config instance too.
 LLM_CONFIG = default_llm_config()
 try:
     LLM_CLIENT = create_llm_client(LLM_CONFIG)
@@ -37,6 +36,7 @@ except Exception as e:
 
 # Routers
 app.include_router(llm_routes.router)
+app.include_router(pipeline_routes.router)
 
 
 @app.get("/health")

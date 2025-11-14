@@ -44,6 +44,11 @@ def _run_pipeline_job(job_id: str, input_path: str, indexing_method: str) -> Non
     """
     Background task that runs the pipeline.
     This is a blocking, sync function by design for now.
+
+    v1 NOTE:
+      We DO NOT require an LLM client for the pipeline to run.
+      We only construct an LLMConfig and pass it through so that
+      later stages can optionally use it.
     """
     job = _PIPELINE_JOBS[job_id]
     job.status = PipelineStatusEnum.RUNNING
@@ -53,17 +58,17 @@ def _run_pipeline_job(job_id: str, input_path: str, indexing_method: str) -> Non
     _PIPELINE_JOBS[job_id] = job
 
     try:
-        # Prepare LLM config + client
+        # Prepare LLM config (but do NOT create a client here)
         job.stage = "llm_init"
-        job.message = "Initializing LLM client"
+        job.message = "Initializing LLM configuration (no client required)"
         _PIPELINE_JOBS[job_id] = job
 
         llm_config = default_llm_config()
-        llm_client = create_llm_client(llm_config)
+        logger.info(f"[PIPELINE] Using LLM config: {llm_config}")
 
-        # Call the core pipeline (stub for now)
+        # Call the core pipeline
         job.stage = "running_pipeline"
-        job.message = "Running build_knowledge_base (stub)"
+        job.message = "Running build_knowledge_base"
         job.progress = 0.1
         _PIPELINE_JOBS[job_id] = job
 
@@ -92,6 +97,8 @@ def _run_pipeline_job(job_id: str, input_path: str, indexing_method: str) -> Non
         job.message = f"Pipeline failed: {e}"
         job.finished_at = time.time()
         _PIPELINE_JOBS[job_id] = job
+        logger.exception(f"[PIPELINE] Job {job_id} failed: {e}")
+
 
 
 def _update_job_status(job_id: str, stage: str, progress: float, message: str) -> None:
