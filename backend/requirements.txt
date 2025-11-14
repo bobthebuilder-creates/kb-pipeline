@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+pydantic
+httpx
+loguru
+python-dotenv
+# to be added later:
+# neo4j
+# qdrant-client
+# pandas
+# numpy
+# networkx
