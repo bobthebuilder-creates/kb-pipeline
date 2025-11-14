@@ -1,16 +1,17 @@
-import uuid
 import time
+import uuid
 from enum import Enum
 from typing import Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from loguru import logger
 from pydantic import BaseModel
 
-from src.llm.config import default_llm_config
-from src.llm.client import create_llm_client
+from src.llm.state import get_llm_state
 from src.pipeline.core import build_knowledge_base
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
+llm_state = get_llm_state()
 
 
 class PipelineStatusEnum(str, Enum):
@@ -35,21 +36,11 @@ class PipelineStatus(BaseModel):
     finished_at: Optional[float] = None
 
 
-# Simple in-memory job store for now.
-# Later we can move this to a DB or Redis if needed.
 _PIPELINE_JOBS: Dict[str, PipelineStatus] = {}
 
 
 def _run_pipeline_job(job_id: str, input_path: str, indexing_method: str) -> None:
-    """
-    Background task that runs the pipeline.
-    This is a blocking, sync function by design for now.
-
-    v1 NOTE:
-      We DO NOT require an LLM client for the pipeline to run.
-      We only construct an LLMConfig and pass it through so that
-      later stages can optionally use it.
-    """
+    """Background task that runs the pipeline for a queued job."""
     job = _PIPELINE_JOBS[job_id]
     job.status = PipelineStatusEnum.RUNNING
     job.stage = "initializing"
@@ -58,15 +49,13 @@ def _run_pipeline_job(job_id: str, input_path: str, indexing_method: str) -> Non
     _PIPELINE_JOBS[job_id] = job
 
     try:
-        # Prepare LLM config (but do NOT create a client here)
-        job.stage = "llm_init"
-        job.message = "Initializing LLM configuration (no client required)"
+        job.stage = "llm_config"
+        job.message = "Fetching active LLM configuration"
         _PIPELINE_JOBS[job_id] = job
 
-        llm_config = default_llm_config()
-        logger.info(f"[PIPELINE] Using LLM config: {llm_config}")
+        llm_config = llm_state.get_config()
+        logger.info("[PIPELINE] Using LLM config: %s", llm_config.dict())
 
-        # Call the core pipeline
         job.stage = "running_pipeline"
         job.message = "Running build_knowledge_base"
         job.progress = 0.1
@@ -81,7 +70,6 @@ def _run_pipeline_job(job_id: str, input_path: str, indexing_method: str) -> Non
             ),
         )
 
-        # Mark as complete
         job = _PIPELINE_JOBS[job_id]
         job.status = PipelineStatusEnum.COMPLETED
         job.stage = "completed"
@@ -89,22 +77,17 @@ def _run_pipeline_job(job_id: str, input_path: str, indexing_method: str) -> Non
         job.message = "Pipeline completed successfully"
         job.finished_at = time.time()
         _PIPELINE_JOBS[job_id] = job
-
-    except Exception as e:
+    except Exception as exc:  # pragma: no cover - defensive logging path
         job = _PIPELINE_JOBS[job_id]
         job.status = PipelineStatusEnum.FAILED
         job.stage = "error"
-        job.message = f"Pipeline failed: {e}"
+        job.message = f"Pipeline failed: {exc}"
         job.finished_at = time.time()
         _PIPELINE_JOBS[job_id] = job
-        logger.exception(f"[PIPELINE] Job {job_id} failed: {e}")
-
+        logger.exception("[PIPELINE] Job %s failed", job_id)
 
 
 def _update_job_status(job_id: str, stage: str, progress: float, message: str) -> None:
-    """
-    Helper used by the pipeline to push stage-level updates.
-    """
     if job_id not in _PIPELINE_JOBS:
         return
     job = _PIPELINE_JOBS[job_id]
@@ -116,9 +99,6 @@ def _update_job_status(job_id: str, stage: str, progress: float, message: str) -
 
 @router.post("/run", response_model=PipelineStatus)
 async def run_pipeline(req: RunPipelineRequest, background_tasks: BackgroundTasks):
-    """
-    Start a new pipeline job for the specified input_path.
-    """
     job_id = str(uuid.uuid4())
     now = time.time()
 
@@ -133,7 +113,6 @@ async def run_pipeline(req: RunPipelineRequest, background_tasks: BackgroundTask
     )
     _PIPELINE_JOBS[job_id] = status
 
-    # Kick off background job
     background_tasks.add_task(
         _run_pipeline_job, job_id, req.input_path, req.indexing_method or "standard"
     )
@@ -143,9 +122,6 @@ async def run_pipeline(req: RunPipelineRequest, background_tasks: BackgroundTask
 
 @router.get("/status/{job_id}", response_model=PipelineStatus)
 async def get_pipeline_status(job_id: str):
-    """
-    Get the current status of a pipeline job.
-    """
     if job_id not in _PIPELINE_JOBS:
         raise HTTPException(status_code=404, detail="Job not found")
     return _PIPELINE_JOBS[job_id]
