@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  kb-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kb-backend
+    ports:
+      - "7777:7777"
+    environment:
+      # Backend config
+      APP_PORT: "7777"
+
+      # LLM config (optional overrides; can also be set via API)
+      # LLM_MODE: "ollama"     # or "custom"
+      # LLM_BASE_URL: "http://host.docker.internal:11434"
+      # LLM_MODEL_NAME: "llama3"
+
+      # Vector / graph DB URLs can be added later
+      # VECTOR_DB_URL: "http://qdrant:6333"
+      # GRAPH_DB_URI: "bolt://neo4j:7687"
+    volumes:
+      - ./input_docs:/data/input
+      - ./output_data:/data/output
+    depends_on:
+      - qdrant
+      - neo4j
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  neo4j:
+    image: neo4j:5
+    container_name: neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/test123
+    ports:
+      - "7474:7474"   # HTTP UI
+      - "7687:7687"   # Bolt
+    volumes:
+      - ./neo4j_data:/data
